@@ -43,9 +43,9 @@ Auth System built in virtual server (Limbo). This is a fork of [LimboAuth](https
 - ***limboauth.admin.reload* | /lauth reload** - Reload Plugin Command
 - ***limboauth.admin.***\* - Gives All Admin Permissions
 
-## Donation
+## Donate to the original author
 
-Your donations are really appreciated. Donations wallets/links/cards:
+Your donations are really appreciated by the original author. Donation wallets/links/cards:
 
 - MasterCard Debit Card (Tinkoff Bank): ``5536 9140 0599 1975``
 - Qiwi Wallet: ``PFORG`` or [this link](https://my.qiwi.com/form/Petr-YSpyiLt9c6)
