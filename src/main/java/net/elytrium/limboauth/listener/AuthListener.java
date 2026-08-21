@@ -77,11 +77,16 @@ public class AuthListener {
     try {
       String username = event.getUsername();
       if (!event.getResult().isForceOfflineMode()) {
-        if (this.plugin.isPremium(username)) {
+        UUID connectionUuid = event.getUniqueId();
+        boolean hasOfflineNamespace = !Settings.IMP.MAIN.OFFLINE_MODE_PREFIX.isEmpty();
+        boolean isPremium = connectionUuid != null && hasOfflineNamespace
+            ? this.plugin.isPremium(username, connectionUuid)
+            : this.plugin.isPremium(username);
+        if (isPremium) {
           event.setResult(PreLoginEvent.PreLoginComponentResult.forceOnlineMode());
 
           try {
-            if (!Settings.IMP.MAIN.ONLINE_MODE_NEED_AUTH_STRICT) {
+            if (connectionUuid == null && !Settings.IMP.MAIN.ONLINE_MODE_NEED_AUTH_STRICT) {
               CachedPremiumUser premiumUser = this.plugin.getPremiumCache(username);
               MinecraftConnection connection = this.getConnection(event.getConnection());
               if (!connection.isClosed() && premiumUser != null && !premiumUser.isForcePremium()

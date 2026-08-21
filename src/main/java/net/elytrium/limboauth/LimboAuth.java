@@ -754,29 +754,21 @@ public class LimboAuth {
 
   public PremiumResponse isPremiumInternal(String nickname) {
     try {
-      QueryBuilder<RegisteredPlayer, String> crackedCountQuery = this.playerDao.queryBuilder();
-      crackedCountQuery.where()
-          .eq(RegisteredPlayer.LOWERCASE_NICKNAME_FIELD, nickname)
-          .and()
-          .ne(RegisteredPlayer.HASH_FIELD, "");
-      crackedCountQuery.setCountOf(true);
+      RegisteredPlayer registeredPlayer = this.playerDao.queryForId(nickname);
+      if (registeredPlayer == null) {
+        return new PremiumResponse(PremiumState.UNKNOWN);
+      }
 
-      QueryBuilder<RegisteredPlayer, String> premiumCountQuery = this.playerDao.queryBuilder();
-      premiumCountQuery.where()
-          .eq(RegisteredPlayer.LOWERCASE_NICKNAME_FIELD, nickname)
-          .and()
-          .eq(RegisteredPlayer.HASH_FIELD, "");
-      premiumCountQuery.setCountOf(true);
-
-      if (this.playerDao.countOf(crackedCountQuery.prepare()) != 0) {
+      if (!registeredPlayer.getHash().isEmpty()) {
         return new PremiumResponse(PremiumState.CRACKED);
       }
 
-      if (this.playerDao.countOf(premiumCountQuery.prepare()) != 0) {
+      String premiumUuid = registeredPlayer.getPremiumUuid();
+      if (premiumUuid.isEmpty()) {
         return new PremiumResponse(PremiumState.PREMIUM);
       }
 
-      return new PremiumResponse(PremiumState.UNKNOWN);
+      return new PremiumResponse(PremiumState.PREMIUM, premiumUuid);
     } catch (SQLException e) {
       LOGGER.error("Unable to check if account is premium.", e);
       return new PremiumResponse(PremiumState.ERROR);
@@ -800,10 +792,11 @@ public class LimboAuth {
   }
 
   @SafeVarargs
-  private boolean checkIsPremiumAndCache(String nickname, Function<String, PremiumResponse>... functions) {
+  private boolean checkIsPremiumAndCache(
+      String nickname, UUID connectionUuid, Function<String, PremiumResponse>... functions) {
     String lowercaseNickname = nickname.toLowerCase(Locale.ROOT);
     if (this.premiumCache.containsKey(lowercaseNickname)) {
-      return this.premiumCache.get(lowercaseNickname).isPremium();
+      return this.premiumCache.get(lowercaseNickname).isPremium(connectionUuid);
     }
 
     boolean premium = false;
@@ -827,10 +820,11 @@ public class LimboAuth {
 
       switch (check.getState()) {
         case CRACKED: {
-          return this.setPremiumCacheLowercased(lowercaseNickname, false).isPremium();
+          return this.setPremiumCacheLowercased(lowercaseNickname, false).isPremium(connectionUuid);
         }
         case PREMIUM: {
-          return this.setForcedPremiumCacheLowercased(lowercaseNickname, true).isPremium();
+          return this.setForcedPremiumCacheLowercased(lowercaseNickname, true, check.getUuid())
+              .isPremium(connectionUuid);
         }
         case PREMIUM_USERNAME: {
           premium = true;
@@ -854,7 +848,7 @@ public class LimboAuth {
 
     if (unknown) {
       if (uuid != null && this.isPremiumUuid(uuid)) {
-        return this.setForcedPremiumCacheLowercased(lowercaseNickname, true).isPremium();
+        return this.setForcedPremiumCacheLowercased(lowercaseNickname, true, uuid).isPremium(connectionUuid);
       }
 
       if (Settings.IMP.MAIN.ONLINE_MODE_NEED_AUTH) {
@@ -870,17 +864,21 @@ public class LimboAuth {
       return Settings.IMP.MAIN.ON_SERVER_ERROR_PREMIUM;
     }
 
-    return this.setPremiumCacheLowercased(lowercaseNickname, true).isPremium();
+    return this.setPremiumCacheLowercased(lowercaseNickname, true, uuid).isPremium(connectionUuid);
   }
 
   public boolean isPremium(String nickname) {
+    return this.isPremium(nickname, null);
+  }
+
+  public boolean isPremium(String nickname, UUID connectionUuid) {
     if (Settings.IMP.MAIN.FORCE_OFFLINE_MODE) {
       return false;
     } else {
       if (Settings.IMP.MAIN.CHECK_PREMIUM_PRIORITY_INTERNAL) {
-        return checkIsPremiumAndCache(nickname, this::isPremiumInternal, this::isPremiumExternal);
+        return checkIsPremiumAndCache(nickname, connectionUuid, this::isPremiumInternal, this::isPremiumExternal);
       } else {
-        return checkIsPremiumAndCache(nickname, this::isPremiumExternal, this::isPremiumInternal);
+        return checkIsPremiumAndCache(nickname, connectionUuid, this::isPremiumExternal, this::isPremiumInternal);
       }
     }
   }
@@ -890,13 +888,23 @@ public class LimboAuth {
   }
 
   public CachedPremiumUser setForcedPremiumCacheLowercased(String lowercasedNickname, boolean value) {
-    CachedPremiumUser premiumUser = this.setPremiumCacheLowercased(lowercasedNickname, value);
-    premiumUser.setForcePremium(value);
+    return this.setForcedPremiumCacheLowercased(lowercasedNickname, value, null);
+  }
+
+  private CachedPremiumUser setForcedPremiumCacheLowercased(
+      String lowercasedNickname, boolean isPremium, UUID premiumUuid) {
+    CachedPremiumUser premiumUser = this.setPremiumCacheLowercased(lowercasedNickname, isPremium, premiumUuid);
+    premiumUser.setForcePremium(isPremium);
     return premiumUser;
   }
 
   public CachedPremiumUser setPremiumCacheLowercased(String lowercasedNickname, boolean value) {
-    CachedPremiumUser premiumUser = new CachedPremiumUser(System.currentTimeMillis(), value);
+    return this.setPremiumCacheLowercased(lowercasedNickname, value, null);
+  }
+
+  private CachedPremiumUser setPremiumCacheLowercased(
+      String lowercasedNickname, boolean isPremium, UUID premiumUuid) {
+    CachedPremiumUser premiumUser = new CachedPremiumUser(System.currentTimeMillis(), isPremium, premiumUuid);
     this.premiumCache.put(lowercasedNickname, premiumUser);
     return premiumUser;
   }
@@ -1031,13 +1039,19 @@ public class LimboAuth {
 
   public static class CachedPremiumUser extends CachedUser {
 
-    private final boolean premium;
+    private final boolean isPremium;
+    private final UUID premiumUuid;
     private boolean forcePremium;
 
-    public CachedPremiumUser(long checkTime, boolean premium) {
+    public CachedPremiumUser(long checkTime, boolean isPremium) {
+      this(checkTime, isPremium, null);
+    }
+
+    public CachedPremiumUser(long checkTime, boolean isPremium, UUID premiumUuid) {
       super(checkTime);
 
-      this.premium = premium;
+      this.isPremium = isPremium;
+      this.premiumUuid = premiumUuid;
     }
 
     public void setForcePremium(boolean forcePremium) {
@@ -1049,7 +1063,12 @@ public class LimboAuth {
     }
 
     public boolean isPremium() {
-      return this.premium;
+      return this.isPremium;
+    }
+
+    public boolean isPremium(UUID connectionUuid) {
+      return this.isPremium
+          && (connectionUuid == null || this.premiumUuid == null || this.premiumUuid.equals(connectionUuid));
     }
   }
 
