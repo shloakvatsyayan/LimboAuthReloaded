@@ -28,6 +28,7 @@ import dev.samstevens.totp.code.DefaultCodeVerifier;
 import dev.samstevens.totp.time.SystemTimeProvider;
 import io.netty.buffer.ByteBuf;
 import io.whitfin.siphash.SipHasher;
+import java.net.InetAddress;
 import java.nio.charset.StandardCharsets;
 import java.sql.SQLException;
 import java.text.MessageFormat;
@@ -72,9 +73,12 @@ public class AuthSessionHandler implements LimboSessionHandler {
   private static Title registerSuccessfulTitle;
   private static Component[] loginWrongPassword;
   private static Component loginWrongPasswordKick;
+  private static Component loginWrongTotpKick;
+  private static Component loginWrongTotpImmediateKick;
   private static Component totp;
   @Nullable
   private static Title totpTitle;
+  @Nullable
   private static Component register;
   @Nullable
   private static Title registerTitle;
@@ -151,7 +155,8 @@ public class AuthSessionHandler implements LimboSessionHandler {
             }
           }
 
-          if (sizeOfValidRegistrations >= Settings.IMP.MAIN.IP_LIMIT_REGISTRATIONS) {
+          if (Settings.IMP.MAIN.IP_LIMIT_REGISTRATIONS > 0
+              && sizeOfValidRegistrations >= Settings.IMP.MAIN.IP_LIMIT_REGISTRATIONS) {
             this.proxyPlayer.disconnect(ipLimitKick);
             return;
           }
@@ -261,10 +266,11 @@ public class AuthSessionHandler implements LimboSessionHandler {
       } else if (command == Command.TOTP && this.totpState && this.playerInfo != null) {
         if (TOTP_CODE_VERIFIER.isValidCode(this.playerInfo.getTotpToken(), args[1])) {
           this.finishLogin();
-          return;
         } else {
-          this.checkBruteforceAttempts();
+          this.handleWrongTotp();
         }
+
+        return;
       }
     }
 
@@ -330,9 +336,20 @@ public class AuthSessionHandler implements LimboSessionHandler {
   }
 
   private void checkBruteforceAttempts() {
-    this.plugin.incrementBruteforceAttempts(this.proxyPlayer.getRemoteAddress().getAddress());
-    if (this.plugin.getBruteforceAttempts(this.proxyPlayer.getRemoteAddress().getAddress()) >= Settings.IMP.MAIN.BRUTEFORCE_MAX_ATTEMPTS) {
+    InetAddress address = this.proxyPlayer.getRemoteAddress().getAddress();
+    this.plugin.incrementBruteforceAttempts(address);
+    if (this.plugin.getBruteforceAttempts(address) >= Settings.IMP.MAIN.BRUTEFORCE_MAX_ATTEMPTS) {
       this.proxyPlayer.disconnect(loginWrongPasswordKick);
+    }
+  }
+
+  private void handleWrongTotp() {
+    InetAddress address = this.proxyPlayer.getRemoteAddress().getAddress();
+    this.plugin.incrementTotpBruteforceAttempts(address);
+    if (this.plugin.getTotpBruteforceAttempts(address) >= Settings.IMP.MAIN.BRUTEFORCE_MAX_OTP_ATTEMPTS) {
+      this.proxyPlayer.disconnect(loginWrongTotpKick);
+    } else {
+      this.proxyPlayer.disconnect(loginWrongTotpImmediateKick);
     }
   }
 
@@ -357,12 +374,17 @@ public class AuthSessionHandler implements LimboSessionHandler {
         this.proxyPlayer.showTitle(totpTitle);
       }
     } else if (this.playerInfo == null) {
-      this.proxyPlayer.sendMessage(register);
+      if (register != null) {
+        this.proxyPlayer.sendMessage(register);
+      }
       if (sendTitle && registerTitle != null) {
         this.proxyPlayer.showTitle(registerTitle);
       }
     } else {
-      this.proxyPlayer.sendMessage(login[this.attempts - 1]);
+      Component loginMessage = login[this.attempts - 1];
+      if (loginMessage != null) {
+        this.proxyPlayer.sendMessage(loginMessage);
+      }
       if (sendTitle && loginTitle != null) {
         this.proxyPlayer.showTitle(loginTitle);
       }
@@ -414,7 +436,9 @@ public class AuthSessionHandler implements LimboSessionHandler {
       this.proxyPlayer.showTitle(loginSuccessfulTitle);
     }
 
-    this.plugin.clearBruteforceAttempts(this.proxyPlayer.getRemoteAddress().getAddress());
+    InetAddress address = this.proxyPlayer.getRemoteAddress().getAddress();
+    this.plugin.clearBruteforceAttempts(address);
+    this.plugin.clearTotpBruteforceAttempts(address);
 
     this.plugin.getServer().getEventManager()
         .fire(new PostAuthorizationEvent(this::finishAuth, this.player, this.playerInfo, this.tempPassword))
@@ -474,6 +498,8 @@ public class AuthSessionHandler implements LimboSessionHandler {
       loginWrongPassword[i] = serializer.deserialize(MessageFormat.format(Settings.IMP.MAIN.STRINGS.LOGIN_WRONG_PASSWORD, i + 1));
     }
     loginWrongPasswordKick = serializer.deserialize(Settings.IMP.MAIN.STRINGS.LOGIN_WRONG_PASSWORD_KICK);
+    loginWrongTotpKick = serializer.deserialize(Settings.IMP.MAIN.STRINGS.LOGIN_WRONG_OTP_KICK);
+    loginWrongTotpImmediateKick = serializer.deserialize(Settings.IMP.MAIN.STRINGS.LOGIN_WRONG_OTP_IMMEDIATE_KICK);
     totp = serializer.deserialize(Settings.IMP.MAIN.STRINGS.TOTP);
     if (Settings.IMP.MAIN.STRINGS.TOTP_TITLE.isEmpty() && Settings.IMP.MAIN.STRINGS.TOTP_SUBTITLE.isEmpty()) {
       totpTitle = null;
@@ -484,7 +510,9 @@ public class AuthSessionHandler implements LimboSessionHandler {
           Settings.IMP.MAIN.CRACKED_TITLE_SETTINGS.toTimes()
       );
     }
-    register = serializer.deserialize(Settings.IMP.MAIN.STRINGS.REGISTER);
+    register = Settings.IMP.MAIN.STRINGS.REGISTER.isEmpty()
+        ? null
+        : serializer.deserialize(Settings.IMP.MAIN.STRINGS.REGISTER);
     if (Settings.IMP.MAIN.STRINGS.REGISTER_TITLE.isEmpty() && Settings.IMP.MAIN.STRINGS.REGISTER_SUBTITLE.isEmpty()) {
       registerTitle = null;
     } else {
@@ -495,8 +523,10 @@ public class AuthSessionHandler implements LimboSessionHandler {
       );
     }
     login = new Component[loginAttempts];
-    for (int i = 0; i < loginAttempts; ++i) {
-      login[i] = serializer.deserialize(MessageFormat.format(Settings.IMP.MAIN.STRINGS.LOGIN, i + 1));
+    if (!Settings.IMP.MAIN.STRINGS.LOGIN.isEmpty()) {
+      for (int i = 0; i < loginAttempts; ++i) {
+        login[i] = serializer.deserialize(MessageFormat.format(Settings.IMP.MAIN.STRINGS.LOGIN, i + 1));
+      }
     }
     if (Settings.IMP.MAIN.STRINGS.LOGIN_TITLE.isEmpty() && Settings.IMP.MAIN.STRINGS.LOGIN_SUBTITLE.isEmpty()) {
       loginTitle = null;

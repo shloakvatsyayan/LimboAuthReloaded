@@ -76,6 +76,7 @@ import java.util.Set;
 import java.util.UUID;
 import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.Consumer;
 import java.util.function.Function;
 import java.util.regex.Pattern;
@@ -151,6 +152,7 @@ public class LimboAuth {
   private final Map<String, CachedSessionUser> cachedAuthChecks = new ConcurrentHashMap<>();
   private final Map<String, CachedPremiumUser> premiumCache = new ConcurrentHashMap<>();
   private final Map<InetAddress, CachedBruteforceUser> bruteforceCache = new ConcurrentHashMap<>();
+  private final Map<InetAddress, CachedBruteforceUser> totpBruteforceCache = new ConcurrentHashMap<>();
   private final Map<UUID, Runnable> postLoginTasks = new ConcurrentHashMap<>();
   private final Set<String> unsafePasswords = new HashSet<>();
   private final Set<String> forcedPreviously = Collections.synchronizedSet(new HashSet<>());
@@ -177,6 +179,7 @@ public class LimboAuth {
   private Title loginFloodgateTitle;
   private Component registrationsDisabledKick;
   private Component bruteforceAttemptKick;
+  private Component bruteforceTotpAttemptKick;
   private Component nicknameInvalidKick;
   private Component reconnectKick;
   private ScheduledTask purgeCacheTask;
@@ -289,6 +292,7 @@ public class LimboAuth {
     }
 
     this.bruteforceAttemptKick = SERIALIZER.deserialize(Settings.IMP.MAIN.STRINGS.LOGIN_WRONG_PASSWORD_KICK);
+    this.bruteforceTotpAttemptKick = SERIALIZER.deserialize(Settings.IMP.MAIN.STRINGS.LOGIN_WRONG_OTP_KICK);
     this.nicknameInvalidKick = SERIALIZER.deserialize(Settings.IMP.MAIN.STRINGS.NICKNAME_INVALID_KICK);
     this.reconnectKick = SERIALIZER.deserialize(Settings.IMP.MAIN.STRINGS.RECONNECT_KICK);
     this.registrationsDisabledKick = SERIALIZER.deserialize(Settings.IMP.MAIN.STRINGS.REGISTRATIONS_DISABLED_KICK);
@@ -312,6 +316,7 @@ public class LimboAuth {
     this.cachedAuthChecks.clear();
     this.premiumCache.clear();
     this.bruteforceCache.clear();
+    this.totpBruteforceCache.clear();
 
     Settings.DATABASE dbConfig = Settings.IMP.DATABASE;
     DatabaseLibrary databaseLibrary = dbConfig.STORAGE_TYPE;
@@ -442,7 +447,10 @@ public class LimboAuth {
     }
 
     this.purgeBruteforceCacheTask = this.server.getScheduler()
-        .buildTask(this, () -> this.checkCache(this.bruteforceCache, Settings.IMP.MAIN.PURGE_BRUTEFORCE_CACHE_MILLIS))
+        .buildTask(this, () -> {
+          this.checkCache(this.bruteforceCache, Settings.IMP.MAIN.PURGE_BRUTEFORCE_CACHE_MILLIS);
+          this.checkCache(this.totpBruteforceCache, Settings.IMP.MAIN.PURGE_BRUTEFORCE_CACHE_MILLIS);
+        })
         .delay(Settings.IMP.MAIN.PURGE_BRUTEFORCE_CACHE_MILLIS, TimeUnit.MILLISECONDS)
         .repeat(Settings.IMP.MAIN.PURGE_BRUTEFORCE_CACHE_MILLIS, TimeUnit.MILLISECONDS)
         .schedule();
@@ -557,7 +565,8 @@ public class LimboAuth {
   }
 
   public void authPlayer(Player player) {
-    boolean isFloodgate = !Settings.IMP.MAIN.FLOODGATE_NEED_AUTH && this.floodgateApi.isFloodgatePlayer(player.getUniqueId());
+    boolean isFloodgatePlayer = this.floodgateApi != null && this.floodgateApi.isFloodgatePlayer(player.getUniqueId());
+    boolean isFloodgate = !Settings.IMP.MAIN.FLOODGATE_NEED_AUTH && isFloodgatePlayer;
     if (!isFloodgate && this.isForcedPreviously(player.getUsername()) && this.isPremium(player.getUsername())) {
       player.disconnect(this.reconnectKick);
       return;
@@ -568,8 +577,13 @@ public class LimboAuth {
       return;
     }
 
+    if (this.getTotpBruteforceAttempts(player.getRemoteAddress().getAddress()) >= Settings.IMP.MAIN.BRUTEFORCE_MAX_OTP_ATTEMPTS) {
+      player.disconnect(this.bruteforceTotpAttemptKick);
+      return;
+    }
+
     String nickname = player.getUsername();
-    if (!this.nicknameValidationPattern.matcher((isFloodgate) ? nickname.substring(this.floodgateApi.getPrefixLength()) : nickname).matches()) {
+    if (!this.nicknameValidationPattern.matcher((isFloodgatePlayer) ? nickname.substring(this.floodgateApi.getPrefixLength()) : nickname).matches()) {
       player.disconnect(this.nicknameInvalidKick);
       return;
     }
@@ -910,25 +924,31 @@ public class LimboAuth {
   }
 
   public void incrementBruteforceAttempts(InetAddress address) {
-    this.getBruteforceUser(address).incrementAttempts();
+    this.getBruteforceUser(this.bruteforceCache, address).incrementAttempts();
   }
 
   public int getBruteforceAttempts(InetAddress address) {
-    return this.getBruteforceUser(address).getAttempts();
+    return this.getBruteforceUser(this.bruteforceCache, address).getAttempts();
   }
 
-  private CachedBruteforceUser getBruteforceUser(InetAddress address) {
-    CachedBruteforceUser user = this.bruteforceCache.get(address);
-    if (user == null) {
-      user = new CachedBruteforceUser(System.currentTimeMillis());
-      this.bruteforceCache.put(address, user);
-    }
+  public void incrementTotpBruteforceAttempts(InetAddress address) {
+    this.getBruteforceUser(this.totpBruteforceCache, address).incrementAttempts();
+  }
 
-    return user;
+  public int getTotpBruteforceAttempts(InetAddress address) {
+    return this.getBruteforceUser(this.totpBruteforceCache, address).getAttempts();
+  }
+
+  private CachedBruteforceUser getBruteforceUser(Map<InetAddress, CachedBruteforceUser> cache, InetAddress address) {
+    return cache.computeIfAbsent(address, ignored -> new CachedBruteforceUser(System.currentTimeMillis()));
   }
 
   public void clearBruteforceAttempts(InetAddress address) {
     this.bruteforceCache.remove(address);
+  }
+
+  public void clearTotpBruteforceAttempts(InetAddress address) {
+    this.totpBruteforceCache.remove(address);
   }
 
   public void saveForceOfflineMode(String nickname) {
@@ -1074,18 +1094,18 @@ public class LimboAuth {
 
   private static class CachedBruteforceUser extends CachedUser {
 
-    private int attempts;
+    private final AtomicInteger attempts = new AtomicInteger();
 
     public CachedBruteforceUser(long checkTime) {
       super(checkTime);
     }
 
     public void incrementAttempts() {
-      this.attempts++;
+      this.attempts.incrementAndGet();
     }
 
     public int getAttempts() {
-      return  this.attempts;
+      return this.attempts.get();
     }
   }
 
