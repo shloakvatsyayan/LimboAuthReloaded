@@ -18,7 +18,6 @@
 package net.elytrium.limboauth.listener;
 
 import com.j256.ormlite.dao.Dao;
-import com.j256.ormlite.stmt.UpdateBuilder;
 import com.velocitypowered.api.event.PostOrder;
 import com.velocitypowered.api.event.Subscribe;
 import com.velocitypowered.api.event.connection.PostLoginEvent;
@@ -26,13 +25,11 @@ import com.velocitypowered.api.event.connection.PreLoginEvent;
 import com.velocitypowered.api.event.connection.PreLoginEvent.PreLoginComponentResult;
 import com.velocitypowered.api.event.player.GameProfileRequestEvent;
 import com.velocitypowered.api.proxy.InboundConnection;
-import com.velocitypowered.api.util.UuidUtils;
 import com.velocitypowered.proxy.connection.MinecraftConnection;
 import com.velocitypowered.proxy.connection.client.InitialInboundConnection;
 import com.velocitypowered.proxy.connection.client.LoginInboundConnection;
 import java.lang.invoke.MethodHandle;
 import java.lang.invoke.MethodHandles;
-import java.sql.SQLException;
 import java.util.Locale;
 import java.util.UUID;
 import java.util.concurrent.TimeUnit;
@@ -42,10 +39,9 @@ import net.elytrium.limboauth.LimboAuth;
 import net.elytrium.limboauth.LimboAuth.CachedPremiumUser;
 import net.elytrium.limboauth.LimboAuth.PremiumState;
 import net.elytrium.limboauth.Settings;
+import net.elytrium.limboauth.account.BackendProfileHandler;
 import net.elytrium.limboauth.floodgate.FloodgateApiHolder;
-import net.elytrium.limboauth.handler.AuthSessionHandler;
 import net.elytrium.limboauth.model.RegisteredPlayer;
-import net.elytrium.limboauth.model.SQLRuntimeException;
 import net.kyori.adventure.text.Component;
 
 // TODO: Customizable events priority
@@ -55,14 +51,12 @@ public class AuthListener {
   //private static final MethodHandle LOGIN_FIELD;
 
   private final LimboAuth plugin;
-  private final Dao<RegisteredPlayer, String> playerDao;
-  private final FloodgateApiHolder floodgateApi;
+  private final BackendProfileHandler backendProfileHandler;
   private final Component errorOccurred;
 
   public AuthListener(LimboAuth plugin, Dao<RegisteredPlayer, String> playerDao, FloodgateApiHolder floodgateApi) {
     this.plugin = plugin;
-    this.playerDao = playerDao;
-    this.floodgateApi = floodgateApi;
+    this.backendProfileHandler = new BackendProfileHandler(plugin, playerDao, floodgateApi);
 
     this.errorOccurred = LimboAuth.getSerializer().deserialize(Settings.IMP.MAIN.STRINGS.ERROR_OCCURRED);
   }
@@ -189,53 +183,7 @@ public class AuthListener {
 
   @Subscribe(order = PostOrder.FIRST)
   public void onGameProfileRequest(GameProfileRequestEvent event) {
-    boolean isFloodgatePlayer = this.floodgateApi != null && this.floodgateApi.isFloodgatePlayer(event.getOriginalProfile().getId());
-
-    if (Settings.IMP.MAIN.SAVE_UUID && !isFloodgatePlayer) {
-      RegisteredPlayer registeredPlayer = AuthSessionHandler.fetchInfo(this.playerDao, event.getOriginalProfile().getId());
-
-      if (registeredPlayer != null && !registeredPlayer.getUuid().isEmpty()) {
-        event.setGameProfile(event.getOriginalProfile().withId(UUID.fromString(registeredPlayer.getUuid())));
-        return;
-      }
-      registeredPlayer = AuthSessionHandler.fetchInfo(this.playerDao, event.getUsername());
-
-      if (registeredPlayer != null) {
-        String currentUuid = registeredPlayer.getUuid();
-
-        if (currentUuid.isEmpty()) {
-          try {
-            registeredPlayer.setUuid(event.getGameProfile().getId().toString());
-            this.playerDao.update(registeredPlayer);
-          } catch (SQLException e) {
-            throw new SQLRuntimeException(e);
-          }
-        } else {
-          event.setGameProfile(event.getOriginalProfile().withId(UUID.fromString(currentUuid)));
-        }
-      }
-    } else if (event.isOnlineMode()) {
-      try {
-        UpdateBuilder<RegisteredPlayer, String> updateBuilder = this.playerDao.updateBuilder();
-        updateBuilder.where().eq(RegisteredPlayer.LOWERCASE_NICKNAME_FIELD, event.getUsername().toLowerCase(Locale.ROOT));
-        updateBuilder.updateColumnValue(RegisteredPlayer.HASH_FIELD, "");
-        updateBuilder.update();
-      } catch (SQLException e) {
-        throw new SQLRuntimeException(e);
-      }
-    }
-
-    if (Settings.IMP.MAIN.FORCE_OFFLINE_UUID && !isFloodgatePlayer) {
-      event.setGameProfile(event.getOriginalProfile().withId(UuidUtils.generateOfflinePlayerUuid(event.getUsername())));
-    }
-
-    if (!event.isOnlineMode() && !isFloodgatePlayer && !Settings.IMP.MAIN.OFFLINE_MODE_PREFIX.isEmpty()) {
-      event.setGameProfile(event.getOriginalProfile().withName(Settings.IMP.MAIN.OFFLINE_MODE_PREFIX + event.getUsername()));
-    }
-
-    if (event.isOnlineMode() && !Settings.IMP.MAIN.ONLINE_MODE_PREFIX.isEmpty()) {
-      event.setGameProfile(event.getOriginalProfile().withName(Settings.IMP.MAIN.ONLINE_MODE_PREFIX + event.getUsername()));
-    }
+    this.backendProfileHandler.handle(event);
   }
 
   static {

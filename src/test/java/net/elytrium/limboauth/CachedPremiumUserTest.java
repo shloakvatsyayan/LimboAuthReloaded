@@ -17,6 +17,7 @@
 
 package net.elytrium.limboauth;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
@@ -33,6 +34,13 @@ class CachedPremiumUserTest {
     LimboAuth.CachedPremiumUser premiumUser = new LimboAuth.CachedPremiumUser(0, true, PREMIUM_UUID);
 
     assertTrue(premiumUser.isPremium(PREMIUM_UUID));
+  }
+
+  @Test
+  void exposesAuthenticatedUuidForDatabasePersistence() {
+    LimboAuth.CachedPremiumUser premiumUser = new LimboAuth.CachedPremiumUser(0, true, PREMIUM_UUID);
+
+    assertEquals(PREMIUM_UUID, premiumUser.getPremiumUuid());
   }
 
   @Test

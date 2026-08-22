@@ -91,6 +91,7 @@ import net.elytrium.limboapi.api.LimboFactory;
 import net.elytrium.limboapi.api.chunk.VirtualWorld;
 import net.elytrium.limboapi.api.command.LimboCommandMeta;
 import net.elytrium.limboapi.api.file.WorldFile;
+import net.elytrium.limboauth.account.AccountNamespace;
 import net.elytrium.limboauth.command.ChangePasswordCommand;
 import net.elytrium.limboauth.command.DestroySessionCommand;
 import net.elytrium.limboauth.command.ForceChangePasswordCommand;
@@ -588,19 +589,25 @@ public class LimboAuth {
       return;
     }
 
-    RegisteredPlayer registeredPlayer = AuthSessionHandler.fetchInfo(this.playerDao, nickname);
-
     boolean onlineMode = player.isOnlineMode();
+    UUID externalAccountUuid = onlineMode ? this.getAuthenticatedPremiumUuid(nickname) : player.getUniqueId();
+    RegisteredPlayer registeredPlayer = AccountNamespace.selectForConnection(
+        AuthSessionHandler.fetchInfo(this.playerDao, nickname), onlineMode, Settings.IMP.MAIN.OFFLINE_MODE_PREFIX);
+
     TaskEvent.Result result = TaskEvent.Result.NORMAL;
 
     if (onlineMode || isFloodgate) {
       if (registeredPlayer == null || registeredPlayer.getHash().isEmpty()) {
         RegisteredPlayer nicknameRegisteredPlayer = registeredPlayer;
-        registeredPlayer = AuthSessionHandler.fetchInfo(this.playerDao, player.getUniqueId());
+        registeredPlayer = AccountNamespace.selectForConnection(
+            AuthSessionHandler.fetchInfo(this.playerDao, player.getUniqueId()),
+            onlineMode,
+            Settings.IMP.MAIN.OFFLINE_MODE_PREFIX
+        );
 
         if (nicknameRegisteredPlayer != null && registeredPlayer == null && nicknameRegisteredPlayer.getHash().isEmpty()) {
           registeredPlayer = nicknameRegisteredPlayer;
-          registeredPlayer.setPremiumUuid(player.getUniqueId().toString());
+          this.setExternalAccountUuid(registeredPlayer, externalAccountUuid);
           try {
             this.playerDao.update(registeredPlayer);
           } catch (SQLException e) {
@@ -609,7 +616,7 @@ public class LimboAuth {
         }
 
         if (nicknameRegisteredPlayer == null && registeredPlayer == null && Settings.IMP.MAIN.SAVE_PREMIUM_ACCOUNTS) {
-          registeredPlayer = new RegisteredPlayer(player).setPremiumUuid(player.getUniqueId());
+          registeredPlayer = this.setExternalAccountUuid(new RegisteredPlayer(player), externalAccountUuid);
 
           try {
             this.playerDao.create(registeredPlayer);
@@ -657,6 +664,15 @@ public class LimboAuth {
       Consumer<TaskEvent> eventConsumer = (event) -> this.sendPlayer(event, ((PreAuthorizationEvent) event).getPlayerInfo());
       eventManager.fire(new PreAuthorizationEvent(eventConsumer, result, player, registeredPlayer)).thenAcceptAsync(eventConsumer);
     }
+  }
+
+  private UUID getAuthenticatedPremiumUuid(String nickname) {
+    CachedPremiumUser premiumUser = this.getPremiumCache(nickname);
+    return premiumUser == null ? null : premiumUser.getPremiumUuid();
+  }
+
+  private RegisteredPlayer setExternalAccountUuid(RegisteredPlayer registeredPlayer, UUID externalAccountUuid) {
+    return externalAccountUuid == null ? registeredPlayer : registeredPlayer.setPremiumUuid(externalAccountUuid);
   }
 
   private void sendPlayer(TaskEvent event, RegisteredPlayer registeredPlayer) {
@@ -901,6 +917,12 @@ public class LimboAuth {
     return this.premiumCache.get(nickname.toLowerCase(Locale.ROOT));
   }
 
+  public void cacheAuthenticatedPremiumUuid(String nickname, UUID premiumUuid) {
+    CachedPremiumUser premiumUser = new CachedPremiumUser(System.currentTimeMillis(), true, premiumUuid);
+    premiumUser.setForcePremium(true);
+    this.premiumCache.put(nickname.toLowerCase(Locale.ROOT), premiumUser);
+  }
+
   public CachedPremiumUser setForcedPremiumCacheLowercased(String lowercasedNickname, boolean value) {
     return this.setForcedPremiumCacheLowercased(lowercasedNickname, value, null);
   }
@@ -1089,6 +1111,10 @@ public class LimboAuth {
     public boolean isPremium(UUID connectionUuid) {
       return this.isPremium
           && (connectionUuid == null || this.premiumUuid == null || this.premiumUuid.equals(connectionUuid));
+    }
+
+    public UUID getPremiumUuid() {
+      return this.premiumUuid;
     }
   }
 
