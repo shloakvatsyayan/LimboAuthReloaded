@@ -1,6 +1,6 @@
 # LimboAuthReloaded
 
-[![Join our Discord](https://img.shields.io/discord/775778822334709780.svg?logo=discord&label=Discord)](https://discord.gg/bonknetwork)
+[![Join our Discord](https://img.shields.io/discord/1133145134318497923.svg?logo=discord&label=Discord)](https://discord.gg/bonknetwork)
 
 Auth System built in a virtual server (Limbo). This is a fork of [LimboAuth](https://github.com/Elytrium/LimboAuth), and is currently used on `play.bonkmc.net`. The goal of this fork is simply to add fixes, features, and future updates to a rarely maintained and useful project.
 
