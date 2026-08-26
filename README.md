@@ -5,8 +5,6 @@
 Auth System built in a virtual server (Limbo). This is a fork of [LimboAuth](https://github.com/Elytrium/LimboAuth), and is currently used on `play.bonkmc.net`. The goal of this fork is simply to add fixes, features, and future updates to a rarely maintained and useful project.
 
 ## See also
-
-- [LimboFilter](https://github.com/Elytrium/LimboFilter) - Most powerful bot filtering solution for Minecraft proxies. Built with [LimboAPI](https://github.com/Elytrium/LimboAPI).
 - [LimboAPI](https://github.com/Elytrium/LimboAPI) - Library for sending players to virtual servers (called limbo)
 
 ## Features of LimboAuth
