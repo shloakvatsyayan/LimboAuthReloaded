@@ -17,6 +17,7 @@
 
 package net.elytrium.limboauth.account;
 
+import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertSame;
 
@@ -56,6 +57,54 @@ class AccountNamespaceTest {
   @Test
   void retainsMissingAccount() {
     assertNull(AccountNamespace.selectForConnection(null, true, "-"));
+  }
+
+  @Test
+  void removesConfiguredStarFromCrackedUsername() {
+    assertEquals("PyroEdged", AccountNamespace.connectionUsername("*PyroEdged", false, "*", ""));
+  }
+
+  @Test
+  void removesConfiguredOnlinePrefixFromPremiumUsername() {
+    assertEquals("PyroEdged", AccountNamespace.connectionUsername("+PyroEdged", true, "*", "+"));
+  }
+
+  @Test
+  void removesConfiguredMultiCharacterPrefixOnce() {
+    assertEquals("*PyroEdged", AccountNamespace.connectionUsername("***PyroEdged", false, "**", ""));
+  }
+
+  @Test
+  void preservesUsernameWithoutExpectedPrefix() {
+    assertEquals("PyroEdged", AccountNamespace.connectionUsername("PyroEdged", false, "*", ""));
+  }
+
+  @Test
+  void usesRegisteredCasingForCrackedConnection() {
+    RegisteredPlayer registeredPlayer = this.account("*8BlacKnight");
+
+    assertEquals(
+        "8BlacKnight",
+        AccountNamespace.canonicalConnectionUsername(
+            "8blacknight", registeredPlayer, false, "*", ""));
+  }
+
+  @Test
+  void usesRegisteredCasingForPremiumConnection() {
+    RegisteredPlayer registeredPlayer = this.account("PyroEdged");
+
+    assertEquals(
+        "PyroEdged",
+        AccountNamespace.canonicalConnectionUsername(
+            "pyroedged", registeredPlayer, true, "*", ""));
+  }
+
+  @Test
+  void preservesConnectionCasingForUnregisteredPlayer() {
+    assertEquals(
+        "NewPlayer",
+        AccountNamespace.canonicalConnectionUsername(
+            "NewPlayer", null, false, "*", ""));
   }
 
   private RegisteredPlayer account(String nickname) {

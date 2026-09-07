@@ -181,7 +181,7 @@ public class AuthListener {
     }
   }
 
-  @Subscribe(order = PostOrder.FIRST)
+  @Subscribe(order = PostOrder.LAST)
   public void onGameProfileRequest(GameProfileRequestEvent event) {
     this.backendProfileHandler.handle(event);
   }

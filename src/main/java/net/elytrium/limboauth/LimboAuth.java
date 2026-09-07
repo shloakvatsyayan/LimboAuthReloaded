@@ -584,12 +584,20 @@ public class LimboAuth {
     }
 
     String nickname = player.getUsername();
-    if (!this.nicknameValidationPattern.matcher((isFloodgatePlayer) ? nickname.substring(this.floodgateApi.getPrefixLength()) : nickname).matches()) {
+    boolean onlineMode = player.isOnlineMode();
+    String connectionNickname = isFloodgatePlayer
+        ? nickname.substring(this.floodgateApi.getPrefixLength())
+        : AccountNamespace.connectionUsername(
+            nickname,
+            onlineMode,
+            Settings.IMP.MAIN.OFFLINE_MODE_PREFIX,
+            Settings.IMP.MAIN.ONLINE_MODE_PREFIX
+        );
+    if (!this.nicknameValidationPattern.matcher(connectionNickname).matches()) {
       player.disconnect(this.nicknameInvalidKick);
       return;
     }
 
-    boolean onlineMode = player.isOnlineMode();
     UUID externalAccountUuid = onlineMode ? this.getAuthenticatedPremiumUuid(nickname) : player.getUniqueId();
     RegisteredPlayer registeredPlayer = AccountNamespace.selectForConnection(
         AuthSessionHandler.fetchInfo(this.playerDao, nickname), onlineMode, Settings.IMP.MAIN.OFFLINE_MODE_PREFIX);

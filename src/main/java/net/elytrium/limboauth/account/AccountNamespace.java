@@ -34,4 +34,34 @@ public final class AccountNamespace {
 
     return registeredPlayer.getNickname().startsWith(offlineModePrefix) ? null : registeredPlayer;
   }
+
+  public static String connectionUsername(
+      String backendUsername, boolean isOnlineMode, String offlineModePrefix, String onlineModePrefix) {
+    Objects.requireNonNull(backendUsername, "backendUsername");
+    Objects.requireNonNull(offlineModePrefix, "offlineModePrefix");
+    Objects.requireNonNull(onlineModePrefix, "onlineModePrefix");
+
+    String configuredPrefix = isOnlineMode ? onlineModePrefix : offlineModePrefix;
+    if (configuredPrefix.isEmpty() || !backendUsername.startsWith(configuredPrefix)) {
+      return backendUsername;
+    }
+
+    return backendUsername.substring(configuredPrefix.length());
+  }
+
+  public static String canonicalConnectionUsername(
+      String connectionUsername,
+      RegisteredPlayer registeredPlayer,
+      boolean isOnlineMode,
+      String offlineModePrefix,
+      String onlineModePrefix) {
+    Objects.requireNonNull(connectionUsername, "connectionUsername");
+
+    if (registeredPlayer == null) {
+      return connectionUsername;
+    }
+
+    return connectionUsername(
+        registeredPlayer.getNickname(), isOnlineMode, offlineModePrefix, onlineModePrefix);
+  }
 }

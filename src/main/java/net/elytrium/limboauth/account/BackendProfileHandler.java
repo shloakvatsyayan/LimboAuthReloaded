@@ -47,23 +47,44 @@ public final class BackendProfileHandler {
   public void handle(GameProfileRequestEvent event) {
     GameProfile originalProfile = event.getOriginalProfile();
     boolean isFloodgatePlayer = this.floodgateApi != null && this.floodgateApi.isFloodgatePlayer(originalProfile.getId());
-    BackendAccountIdentity backendIdentity = BackendAccountIdentity.resolve(
+    if (isFloodgatePlayer) {
+      return;
+    }
+
+    GameProfile currentProfile = event.getGameProfile();
+    BackendAccountIdentity requestedIdentity = BackendAccountIdentity.resolve(
         event.getUsername(),
-        originalProfile.getId(),
+        currentProfile.getId(),
         event.isOnlineMode(),
-        isFloodgatePlayer,
+        false,
+        Settings.IMP.MAIN.FORCE_OFFLINE_UUID,
+        Settings.IMP.MAIN.OFFLINE_MODE_PREFIX,
+        Settings.IMP.MAIN.ONLINE_MODE_PREFIX
+    );
+    RegisteredPlayer registeredPlayer = this.findRegisteredPlayer(event, requestedIdentity.getUsername());
+    String connectionUsername = AccountNamespace.canonicalConnectionUsername(
+        event.getUsername(),
+        registeredPlayer,
+        event.isOnlineMode(),
+        Settings.IMP.MAIN.OFFLINE_MODE_PREFIX,
+        Settings.IMP.MAIN.ONLINE_MODE_PREFIX
+    );
+    BackendAccountIdentity backendIdentity = BackendAccountIdentity.resolve(
+        connectionUsername,
+        currentProfile.getId(),
+        event.isOnlineMode(),
+        false,
         Settings.IMP.MAIN.FORCE_OFFLINE_UUID,
         Settings.IMP.MAIN.OFFLINE_MODE_PREFIX,
         Settings.IMP.MAIN.ONLINE_MODE_PREFIX
     );
 
-    if (event.isOnlineMode() && !isFloodgatePlayer) {
+    if (event.isOnlineMode()) {
       this.cachePremiumUuid(event.getUsername(), backendIdentity.getUsername(), originalProfile.getId());
     }
 
     UUID backendUuid = backendIdentity.getUuid();
-    if (Settings.IMP.MAIN.SAVE_UUID && !isFloodgatePlayer) {
-      RegisteredPlayer registeredPlayer = this.findRegisteredPlayer(event, backendIdentity.getUsername());
+    if (Settings.IMP.MAIN.SAVE_UUID) {
       if (registeredPlayer != null) {
         backendUuid = this.resolveSavedUuid(registeredPlayer, backendIdentity);
       }
@@ -71,7 +92,7 @@ public final class BackendProfileHandler {
       this.clearPasswordHash(event.getUsername());
     }
 
-    event.setGameProfile(originalProfile.withName(backendIdentity.getUsername()).withId(backendUuid));
+    event.setGameProfile(currentProfile.withName(backendIdentity.getUsername()).withId(backendUuid));
   }
 
   private void cachePremiumUuid(String connectionUsername, String backendUsername, UUID premiumUuid) {

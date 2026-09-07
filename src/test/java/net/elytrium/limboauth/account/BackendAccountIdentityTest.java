@@ -23,6 +23,7 @@ import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.UUID;
+import net.elytrium.limboauth.model.RegisteredPlayer;
 import org.junit.jupiter.api.Test;
 
 class BackendAccountIdentityTest {
@@ -48,6 +49,31 @@ class BackendAccountIdentityTest {
     assertEquals(CRACKED_OFFLINE_UUID, identity.getUuid());
     assertNotEquals(PREMIUM_OFFLINE_UUID, identity.getUuid());
     assertTrue(identity.isOfflineUuid());
+  }
+
+  @Test
+  void includesConfiguredStarInCrackedOfflineUuid() {
+    BackendAccountIdentity identity = this.resolve(false, false, false, "*", "");
+
+    assertEquals("*PyroEdged", identity.getUsername());
+    assertEquals(UUID.fromString("4cc11632-ad2e-3f32-a2f7-b2ac64d968fd"), identity.getUuid());
+    assertNotEquals(PREMIUM_OFFLINE_UUID, identity.getUuid());
+  }
+
+  @Test
+  void usesRegisteredCasingForBlackKnightBackendIdentity() {
+    BackendAccountIdentity identity = this.resolveRegistered("8blacknight", "*8BlacKnight");
+
+    assertEquals("*8BlacKnight", identity.getUsername());
+    assertEquals(UUID.fromString("19526dc4-c8a2-3fbd-a413-2c3c1d3c0ace"), identity.getUuid());
+  }
+
+  @Test
+  void usesRegisteredCasingForPatoBackendIdentity() {
+    BackendAccountIdentity identity = this.resolveRegistered("pato", "*Pato");
+
+    assertEquals("*Pato", identity.getUsername());
+    assertEquals(UUID.fromString("5b9d5021-72ed-3465-9d3a-de5946f73d04"), identity.getUuid());
   }
 
   @Test
@@ -97,6 +123,21 @@ class BackendAccountIdentityTest {
         shouldForceOfflineUuid,
         offlineModePrefix,
         onlineModePrefix
+    );
+  }
+
+  private BackendAccountIdentity resolveRegistered(String connectionUsername, String registeredNickname) {
+    RegisteredPlayer registeredPlayer = new RegisteredPlayer(registeredNickname, "", "");
+    String canonicalUsername = AccountNamespace.canonicalConnectionUsername(
+        connectionUsername, registeredPlayer, false, "*", "");
+    return BackendAccountIdentity.resolve(
+        canonicalUsername,
+        AUTHENTICATED_UUID,
+        false,
+        false,
+        false,
+        "*",
+        ""
     );
   }
 }
