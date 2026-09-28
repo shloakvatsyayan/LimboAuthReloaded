@@ -62,6 +62,14 @@ public final class BackendProfileHandler {
         Settings.IMP.MAIN.ONLINE_MODE_PREFIX
     );
     RegisteredPlayer registeredPlayer = this.findRegisteredPlayer(event, requestedIdentity.getUsername());
+    if (event.isOnlineMode() && registeredPlayer != null) {
+      String previousUsername = registeredPlayer.getNickname();
+      if (new PremiumAccountRenamer(this.playerDao).rename(
+          registeredPlayer, originalProfile.getId(), requestedIdentity.getUsername())) {
+        this.plugin.removePlayerFromCache(previousUsername);
+        this.plugin.removePlayerFromCache(requestedIdentity.getUsername());
+      }
+    }
     String connectionUsername = AccountNamespace.canonicalConnectionUsername(
         event.getUsername(),
         registeredPlayer,
@@ -86,7 +94,9 @@ public final class BackendProfileHandler {
     UUID backendUuid = backendIdentity.getUuid();
     if (Settings.IMP.MAIN.SAVE_UUID) {
       if (registeredPlayer != null) {
-        backendUuid = this.resolveSavedUuid(registeredPlayer, backendIdentity);
+        boolean isLinkedPremium = event.isOnlineMode()
+            && originalProfile.getId().toString().equals(registeredPlayer.getPremiumUuid());
+        backendUuid = this.resolveSavedUuid(registeredPlayer, backendIdentity, isLinkedPremium);
       }
     } else if (event.isOnlineMode()) {
       this.clearPasswordHash(event.getUsername());
@@ -123,9 +133,10 @@ public final class BackendProfileHandler {
     return registeredPlayer;
   }
 
-  private UUID resolveSavedUuid(RegisteredPlayer registeredPlayer, BackendAccountIdentity backendIdentity) {
+  private UUID resolveSavedUuid(
+      RegisteredPlayer registeredPlayer, BackendAccountIdentity backendIdentity, boolean isLinkedPremium) {
     String savedUuid = registeredPlayer.getUuid();
-    if (!backendIdentity.isOfflineUuid() && !savedUuid.isEmpty()) {
+    if ((isLinkedPremium || !backendIdentity.isOfflineUuid()) && !savedUuid.isEmpty()) {
       return UUID.fromString(savedUuid);
     }
 

@@ -183,7 +183,28 @@ public class AuthListener {
 
   @Subscribe(order = PostOrder.LAST)
   public void onGameProfileRequest(GameProfileRequestEvent event) {
-    this.backendProfileHandler.handle(event);
+    try {
+      this.backendProfileHandler.handle(event);
+    } catch (RuntimeException exception) {
+      try {
+        this.disconnectProfileConnection(event.getConnection());
+      } catch (RuntimeException disconnectFailure) {
+        if (disconnectFailure != exception) {
+          exception.addSuppressed(disconnectFailure);
+        }
+      }
+      throw exception;
+    }
+  }
+
+  private void disconnectProfileConnection(InboundConnection connection) {
+    if (connection instanceof LoginInboundConnection loginConnection) {
+      loginConnection.disconnect(this.errorOccurred);
+    } else if (connection instanceof InitialInboundConnection initialConnection) {
+      initialConnection.disconnect(this.errorOccurred);
+    } else {
+      throw new IllegalStateException("Cannot disconnect unsupported profile connection: " + connection.getClass().getName());
+    }
   }
 
   static {

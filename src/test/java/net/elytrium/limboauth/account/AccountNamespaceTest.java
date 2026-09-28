@@ -90,13 +90,21 @@ class AccountNamespaceTest {
   }
 
   @Test
-  void usesRegisteredCasingForPremiumConnection() {
+  void usesAuthenticatedCasingForPremiumConnection() {
     RegisteredPlayer registeredPlayer = this.account("PyroEdged");
 
     assertEquals(
-        "PyroEdged",
+        "pyroedged",
         AccountNamespace.canonicalConnectionUsername(
             "pyroedged", registeredPlayer, true, "*", ""));
+  }
+
+  @Test
+  void usesCurrentPremiumNameInsteadOfHistoricalRegisteredName() {
+    assertEquals(
+        "NewName",
+        AccountNamespace.canonicalConnectionUsername(
+            "NewName", this.account("OldName"), true, "", ""));
   }
 
   @Test

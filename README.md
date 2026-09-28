@@ -21,6 +21,14 @@ Auth System built in a virtual server (Limbo). This is a fork of [LimboAuth](htt
 - [MCEdit](https://www.mcedit.net/about.html) schematic world loading;
 - And more...
 
+## Premium username changes
+
+Premium players use the current name from their authenticated Minecraft profile. Older versions could replace it with a historical name saved in the auth database.
+
+After upgrading the plugin and restarting the proxy, affected accounts are repaired automatically on their next successful online-mode connection. No database reset or config change is needed. The repair updates the existing account's name and lookup key together, preserving its password, 2FA settings, and account history. With `save-uuid: true`, the saved backend UUID remains stable across name changes, including when prefixes or offline UUIDs are configured. Other plugins that identify players by name may require their own updates.
+
+Offline accounts retain their registered name casing, and Floodgate profiles are unchanged. If the new name is already registered to another local account, login is stopped and the conflict is logged; neither account is overwritten or merged. An administrator must resolve the conflict before that player can reconnect.
+
 ## Commands and permissions
 
 ### Player

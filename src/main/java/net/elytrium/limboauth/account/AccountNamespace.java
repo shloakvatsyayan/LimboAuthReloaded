@@ -57,7 +57,7 @@ public final class AccountNamespace {
       String onlineModePrefix) {
     Objects.requireNonNull(connectionUsername, "connectionUsername");
 
-    if (registeredPlayer == null) {
+    if (registeredPlayer == null || isOnlineMode) {
       return connectionUsername;
     }
 
