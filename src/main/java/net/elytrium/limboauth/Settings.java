@@ -473,6 +473,7 @@ public class Settings extends YamlConfig {
 
       public String REGISTRATIONS_DISABLED_KICK = "{PRFX} Registrations are currently disabled.";
 
+      public String CHANGE_PASSWORD_NOT_REGISTERED = "{PRFX} &cYour registered account could not be found. Please contact an administrator.";
       public String CHANGE_PASSWORD_SUCCESSFUL = "{PRFX} &aSuccessfully changed password!";
       @Comment("Or if change-password-need-old-pass set to false remove the \"<old password>\" part.")
       public String CHANGE_PASSWORD_USAGE = "{PRFX} Usage: &6/changepassword <old password> <new password>";

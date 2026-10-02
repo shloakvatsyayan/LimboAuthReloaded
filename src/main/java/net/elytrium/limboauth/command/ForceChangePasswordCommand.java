@@ -18,20 +18,17 @@
 package net.elytrium.limboauth.command;
 
 import com.j256.ormlite.dao.Dao;
-import com.j256.ormlite.stmt.UpdateBuilder;
 import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.proxy.ProxyServer;
 import java.sql.SQLException;
 import java.text.MessageFormat;
 import java.util.List;
-import java.util.Locale;
 import net.elytrium.commons.kyori.serialization.Serializer;
 import net.elytrium.commons.velocity.commands.SuggestUtils;
 import net.elytrium.limboauth.LimboAuth;
 import net.elytrium.limboauth.Settings;
 import net.elytrium.limboauth.event.ChangePasswordEvent;
-import net.elytrium.limboauth.handler.AuthSessionHandler;
 import net.elytrium.limboauth.model.RegisteredPlayer;
 import net.elytrium.limboauth.model.SQLRuntimeException;
 import net.kyori.adventure.text.Component;
@@ -69,12 +66,11 @@ public class ForceChangePasswordCommand extends RatelimitedCommand {
   public void execute(CommandSource source, String[] args) {
     if (args.length == 2) {
       String nickname = args[0];
-      String nicknameLowercased = args[0].toLowerCase(Locale.ROOT);
       String newPassword = args[1];
 
       Serializer serializer = LimboAuth.getSerializer();
       try {
-        RegisteredPlayer registeredPlayer = AuthSessionHandler.fetchInfoLowercased(this.playerDao, nicknameLowercased);
+        RegisteredPlayer registeredPlayer = PasswordAccounts.findTarget(this.playerDao, nickname);
 
         if (registeredPlayer == null) {
           source.sendMessage(serializer.deserialize(MessageFormat.format(this.notRegistered, nickname)));
@@ -84,18 +80,15 @@ public class ForceChangePasswordCommand extends RatelimitedCommand {
         final String oldHash = registeredPlayer.getHash();
         final String newHash = RegisteredPlayer.genHash(newPassword);
 
-        UpdateBuilder<RegisteredPlayer, String> updateBuilder = this.playerDao.updateBuilder();
-        updateBuilder.where().eq(RegisteredPlayer.LOWERCASE_NICKNAME_FIELD, nicknameLowercased);
-        updateBuilder.updateColumnValue(RegisteredPlayer.HASH_FIELD, newHash);
-        updateBuilder.update();
+        PasswordAccounts.changePassword(this.playerDao, registeredPlayer, newHash);
 
-        this.plugin.removePlayerFromCacheLowercased(nicknameLowercased);
-        this.server.getPlayer(nickname)
+        this.plugin.removePlayerFromCacheLowercased(registeredPlayer.getLowercaseNickname());
+        this.server.getPlayer(registeredPlayer.getNickname())
             .ifPresent(player -> player.sendMessage(serializer.deserialize(MessageFormat.format(this.message, newPassword))));
 
         this.plugin.getServer().getEventManager().fireAndForget(new ChangePasswordEvent(registeredPlayer, null, oldHash, newPassword, newHash));
 
-        source.sendMessage(serializer.deserialize(MessageFormat.format(this.successful, nickname)));
+        source.sendMessage(serializer.deserialize(MessageFormat.format(this.successful, registeredPlayer.getNickname())));
       } catch (SQLException e) {
         source.sendMessage(serializer.deserialize(MessageFormat.format(this.notSuccessful, nickname)));
         throw new SQLRuntimeException(e);

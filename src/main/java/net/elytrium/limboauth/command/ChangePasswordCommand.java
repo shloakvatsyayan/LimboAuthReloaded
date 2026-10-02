@@ -18,12 +18,10 @@
 package net.elytrium.limboauth.command;
 
 import com.j256.ormlite.dao.Dao;
-import com.j256.ormlite.stmt.UpdateBuilder;
 import com.velocitypowered.api.command.CommandSource;
 import com.velocitypowered.api.command.SimpleCommand;
 import com.velocitypowered.api.proxy.Player;
 import java.sql.SQLException;
-import java.util.Locale;
 import net.elytrium.commons.kyori.serialization.Serializer;
 import net.elytrium.limboauth.LimboAuth;
 import net.elytrium.limboauth.Settings;
@@ -52,7 +50,7 @@ public class ChangePasswordCommand extends RatelimitedCommand {
 
     Serializer serializer = LimboAuth.getSerializer();
     this.needOldPass = Settings.IMP.MAIN.CHANGE_PASSWORD_NEED_OLD_PASSWORD;
-    this.notRegistered = serializer.deserialize(Settings.IMP.MAIN.STRINGS.NOT_REGISTERED);
+    this.notRegistered = serializer.deserialize(Settings.IMP.MAIN.STRINGS.CHANGE_PASSWORD_NOT_REGISTERED);
     this.wrongPassword = serializer.deserialize(Settings.IMP.MAIN.STRINGS.WRONG_PASSWORD);
     this.successful = serializer.deserialize(Settings.IMP.MAIN.STRINGS.CHANGE_PASSWORD_SUCCESSFUL);
     this.errorOccurred = serializer.deserialize(Settings.IMP.MAIN.STRINGS.ERROR_OCCURRED);
@@ -63,42 +61,38 @@ public class ChangePasswordCommand extends RatelimitedCommand {
   @Override
   public void execute(CommandSource source, String[] args) {
     if (source instanceof Player) {
-      String usernameLowercase = ((Player) source).getUsername().toLowerCase(Locale.ROOT);
-      RegisteredPlayer player = AuthSessionHandler.fetchInfoLowercased(this.playerDao, usernameLowercase);
+      try {
+        RegisteredPlayer player = PasswordAccounts.findPlayer(this.playerDao, (Player) source);
 
-      if (player == null) {
-        source.sendMessage(this.notRegistered);
-        return;
-      }
+        if (player == null) {
+          source.sendMessage(this.notRegistered);
+          return;
+        }
 
-      boolean onlineMode = player.getHash().isEmpty();
-      boolean needOldPass = this.needOldPass && !onlineMode;
-      if (needOldPass) {
-        if (args.length < 2) {
+        boolean onlineMode = player.getHash().isEmpty();
+        boolean needOldPass = this.needOldPass && !onlineMode;
+        if (needOldPass) {
+          if (args.length < 2) {
+            source.sendMessage(this.usage);
+            return;
+          }
+
+          if (!AuthSessionHandler.checkPassword(args[0], player, this.playerDao)) {
+            source.sendMessage(this.wrongPassword);
+            return;
+          }
+        } else if (args.length < 1) {
           source.sendMessage(this.usage);
           return;
         }
 
-        if (!AuthSessionHandler.checkPassword(args[0], player, this.playerDao)) {
-          source.sendMessage(this.wrongPassword);
-          return;
-        }
-      } else if (args.length < 1) {
-        source.sendMessage(this.usage);
-        return;
-      }
-
-      try {
         final String oldHash = player.getHash();
         final String newPassword = needOldPass ? args[1] : args[0];
         final String newHash = RegisteredPlayer.genHash(newPassword);
 
-        UpdateBuilder<RegisteredPlayer, String> updateBuilder = this.playerDao.updateBuilder();
-        updateBuilder.where().eq(RegisteredPlayer.LOWERCASE_NICKNAME_FIELD, usernameLowercase);
-        updateBuilder.updateColumnValue(RegisteredPlayer.HASH_FIELD, newHash);
-        updateBuilder.update();
-
-        this.plugin.removePlayerFromCacheLowercased(usernameLowercase);
+        PasswordAccounts.changePassword(this.playerDao, player, newHash);
+        this.plugin.removePlayerFromCacheLowercased(player.getLowercaseNickname());
+        this.plugin.removePlayerFromCache(((Player) source).getUsername());
 
         this.plugin.getServer().getEventManager().fireAndForget(
             new ChangePasswordEvent(player, needOldPass ? args[0] : null, oldHash, newPassword, newHash));

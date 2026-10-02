@@ -21,22 +21,24 @@ import com.j256.ormlite.dao.Dao;
 import com.j256.ormlite.dao.DaoManager;
 import com.j256.ormlite.jdbc.JdbcConnectionSource;
 import com.j256.ormlite.table.TableUtils;
+import edu.umd.cs.findbugs.annotations.SuppressFBWarnings;
 import java.sql.SQLException;
 import java.util.UUID;
 import net.elytrium.limboauth.model.RegisteredPlayer;
 
-final class AccountDatabase implements AutoCloseable {
+public final class AccountDatabase implements AutoCloseable {
 
   private final JdbcConnectionSource connection;
   private final Dao<RegisteredPlayer, String> playerDao;
 
-  AccountDatabase() throws SQLException {
+  public AccountDatabase() throws SQLException {
     this.connection = new JdbcConnectionSource("jdbc:h2:mem:" + UUID.randomUUID());
     TableUtils.createTable(this.connection, RegisteredPlayer.class);
     this.playerDao = DaoManager.createDao(this.connection, RegisteredPlayer.class);
   }
 
-  Dao<RegisteredPlayer, String> getPlayerDao() {
+  @SuppressFBWarnings(value = "EI_EXPOSE_REP", justification = "Tests exercise persistence through the shared fixture DAO")
+  public Dao<RegisteredPlayer, String> getPlayerDao() {
     return this.playerDao;
   }
 
