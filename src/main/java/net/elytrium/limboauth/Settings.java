@@ -108,6 +108,7 @@ public class Settings extends YamlConfig {
         "Can be disabled to reduce the size of stored data in the database"
     })
     public boolean SAVE_PREMIUM_ACCOUNTS = true;
+    public boolean OVERWRITE_UNLINKED_OFFLINE_ACCOUNTS = false;
     public boolean ENABLE_TOTP = true;
     public boolean TOTP_NEED_PASSWORD = true;
     public boolean REGISTER_NEED_REPEAT_PASSWORD = true;

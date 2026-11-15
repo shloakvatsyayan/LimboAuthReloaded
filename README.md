@@ -27,7 +27,22 @@ Premium players use the current name from their authenticated Minecraft profile.
 
 After upgrading the plugin and restarting the proxy, affected accounts are repaired automatically on their next successful online-mode connection. No database reset or config change is needed. The repair updates the existing account's name and lookup key together, preserving its password, 2FA settings, and account history. With `save-uuid: true`, the saved backend UUID remains stable across name changes, including when prefixes or offline UUIDs are configured. Other plugins that identify players by name may require their own updates.
 
-Offline accounts retain their registered name casing, and Floodgate profiles are unchanged. If the new name is already registered to another local account, login is stopped and the conflict is logged; neither account is overwritten or merged. An administrator must resolve the conflict before that player can reconnect.
+Offline accounts retain their registered name casing, and Floodgate profiles are unchanged. By default, if the new name is already registered to another local account, login is stopped and the conflict is logged. An administrator must resolve the conflict before that player can reconnect.
+
+### Overwriting unlinked offline accounts
+
+To let verified premium players reclaim an occupied username, enable this option under `main` in `config.yml`, then restart the proxy or run `/lauth reload`:
+
+```yaml
+main:
+  overwrite-unlinked-offline-accounts: true
+```
+
+The default is `false`. When enabled, this applies both to returning premium players who changed their name and to first-time premium players. Only accounts with an empty or null premium UUID can be replaced. Accounts already linked to a premium UUID remain protected, and separate offline-prefix accounts and Floodgate profiles are unchanged.
+
+Replacement happens only after successful online-mode authentication. A returning premium account keeps its saved UUID, password, 2FA, and history. A first-time premium account starts fresh with the configured premium backend UUID; the replaced offline account's password, 2FA, saved UUID, and history are discarded. The replacement record is saved even when `save-premium-accounts` is disabled. Database changes are transactional, so a failed replacement restores the offline record. This does not migrate or delete player data managed by other plugins.
+
+For an eligible username collision, the option checks the premium profile service even if the database or cache previously classified the name as offline. A confirmed premium name is sent through online-mode verification even when `online-mode-need-auth` is enabled. Failed verification never replaces an account. If the profile lookup fails or finds no premium owner, the existing offline account remains available. `force-offline-mode` still takes precedence.
 
 ## Commands and permissions
 

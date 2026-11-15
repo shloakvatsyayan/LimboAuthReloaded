@@ -92,6 +92,7 @@ import net.elytrium.limboapi.api.chunk.VirtualWorld;
 import net.elytrium.limboapi.api.command.LimboCommandMeta;
 import net.elytrium.limboapi.api.file.WorldFile;
 import net.elytrium.limboauth.account.AccountNamespace;
+import net.elytrium.limboauth.account.UnlinkedAccounts;
 import net.elytrium.limboauth.command.ChangePasswordCommand;
 import net.elytrium.limboauth.command.DestroySessionCommand;
 import net.elytrium.limboauth.command.ForceChangePasswordCommand;
@@ -913,6 +914,15 @@ public class LimboAuth {
     if (Settings.IMP.MAIN.FORCE_OFFLINE_MODE) {
       return false;
     } else {
+      if (Settings.IMP.MAIN.OVERWRITE_UNLINKED_OFFLINE_ACCOUNTS
+          && UnlinkedAccounts.exists(this.playerDao, Settings.IMP.MAIN.ONLINE_MODE_PREFIX + nickname, Settings.IMP.MAIN.OFFLINE_MODE_PREFIX)) {
+        PremiumResponse premiumAccount = this.isPremiumExternal(nickname);
+        if (premiumAccount.getState() == PremiumState.PREMIUM_USERNAME && premiumAccount.getUuid() != null) {
+          return this.setForcedPremiumCacheLowercased(nickname.toLowerCase(Locale.ROOT), true, premiumAccount.getUuid())
+              .isPremium(connectionUuid);
+        }
+        return false;
+      }
       if (Settings.IMP.MAIN.CHECK_PREMIUM_PRIORITY_INTERNAL) {
         return checkIsPremiumAndCache(nickname, connectionUuid, this::isPremiumInternal, this::isPremiumExternal);
       } else {

@@ -29,6 +29,9 @@ import net.elytrium.limboauth.model.RegisteredPlayer;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.params.ParameterizedTest;
+import org.junit.jupiter.params.provider.NullAndEmptySource;
+import org.junit.jupiter.params.provider.ValueSource;
 
 class PremiumAccountRenamerTest {
 
@@ -51,14 +54,18 @@ class PremiumAccountRenamerTest {
     this.database.close();
   }
 
-  @Test
-  void repairsExistingRowWithoutChangingCredentialsOrAccountHistory() throws Exception {
+  @ParameterizedTest
+  @ValueSource(booleans = {false, true})
+  void repairsExistingRowWithoutChangingCredentialsOrAccountHistory(boolean shouldOverwrite) throws Exception {
     RegisteredPlayer account = this.database.createAccount("OldName", PREMIUM_UUID, BACKEND_UUID)
         .setHash("existing-password-hash").setTotpToken("existing-totp-secret")
         .setRegDate(123L).setLoginDate(456L).setLoginIp("192.0.2.1").setTokenIssuedAt(789L);
     this.playerDao.update(account);
+    if (shouldOverwrite) {
+      this.playerDao.create(new RegisteredPlayer("CurrentName", "occupied-uuid", "192.0.2.2").setHash("offline-password"));
+    }
 
-    assertTrue(this.renamer.rename(account, PREMIUM_UUID, "CurrentName"));
+    assertTrue(this.renamer.rename(account, PREMIUM_UUID, "CurrentName", shouldOverwrite));
 
     RegisteredPlayer repaired = this.playerDao.queryForId("currentname");
     assertNull(this.playerDao.queryForId("oldname"));
@@ -74,14 +81,14 @@ class PremiumAccountRenamerTest {
     assertEquals(123L, repaired.getRegDate());
     assertEquals(456L, repaired.getLoginDate());
     assertEquals(789L, repaired.getTokenIssuedAt());
-    assertFalse(this.renamer.rename(repaired, PREMIUM_UUID, "CurrentName"));
+    assertFalse(this.renamer.rename(repaired, PREMIUM_UUID, "CurrentName", false));
   }
 
   @Test
   void updatesCaseOnlyNameChanges() throws Exception {
     RegisteredPlayer account = this.database.createAccount("OLDNAME", PREMIUM_UUID, BACKEND_UUID);
 
-    assertTrue(this.renamer.rename(account, PREMIUM_UUID, "OldName"));
+    assertTrue(this.renamer.rename(account, PREMIUM_UUID, "OldName", false));
     assertEquals("OldName", this.playerDao.queryForId("oldname").getNickname());
     assertEquals(1, this.playerDao.countOf());
   }
@@ -90,7 +97,7 @@ class PremiumAccountRenamerTest {
   void keepsConfiguredPrefixOnRepairedName() throws Exception {
     RegisteredPlayer account = this.database.createAccount("+OldName", PREMIUM_UUID, BACKEND_UUID);
 
-    assertTrue(this.renamer.rename(account, PREMIUM_UUID, "+CurrentName"));
+    assertTrue(this.renamer.rename(account, PREMIUM_UUID, "+CurrentName", false));
     assertNull(this.playerDao.queryForId("+oldname"));
     assertEquals("+CurrentName", this.playerDao.queryForId("+currentname").getNickname());
   }
@@ -101,7 +108,7 @@ class PremiumAccountRenamerTest {
     RegisteredPlayer occupied = new RegisteredPlayer("CurrentName", "occupied-uuid", "192.0.2.2").setHash("password");
     this.playerDao.create(occupied);
 
-    assertThrows(IllegalStateException.class, () -> this.renamer.rename(account, PREMIUM_UUID, "CurrentName"));
+    assertThrows(IllegalStateException.class, () -> this.renamer.rename(account, PREMIUM_UUID, "CurrentName", false));
     assertEquals("OldName", account.getNickname());
     assertEquals("OldName", this.playerDao.queryForId("oldname").getNickname());
     assertEquals("password", this.playerDao.queryForId("currentname").getHash());
@@ -113,7 +120,7 @@ class PremiumAccountRenamerTest {
   void refusesAnAccountLinkedToAnotherPremiumUuid() throws Exception {
     RegisteredPlayer account = this.database.createAccount("OldName", PREMIUM_UUID, BACKEND_UUID);
 
-    assertThrows(IllegalStateException.class, () -> this.renamer.rename(account, UUID.randomUUID(), "OldName"));
+    assertThrows(IllegalStateException.class, () -> this.renamer.rename(account, UUID.randomUUID(), "OldName", false));
     assertEquals(PREMIUM_UUID.toString(), this.playerDao.queryForId("oldname").getPremiumUuid());
   }
 
@@ -122,7 +129,7 @@ class PremiumAccountRenamerTest {
     RegisteredPlayer account = new RegisteredPlayer("OldName", BACKEND_UUID.toString(), "127.0.0.1");
     this.playerDao.create(account);
 
-    assertFalse(this.renamer.rename(account, PREMIUM_UUID, "CurrentName"));
+    assertFalse(this.renamer.rename(account, PREMIUM_UUID, "CurrentName", false));
     assertNull(this.playerDao.queryForId("currentname"));
     assertEquals("OldName", this.playerDao.queryForId("oldname").getNickname());
   }
@@ -131,11 +138,52 @@ class PremiumAccountRenamerTest {
   void refusesStaleAccountAfterConcurrentRename() throws Exception {
     RegisteredPlayer account = this.database.createAccount("OldName", PREMIUM_UUID, BACKEND_UUID);
     RegisteredPlayer staleAccount = this.playerDao.queryForId("oldname");
-    this.renamer.rename(account, PREMIUM_UUID, "CurrentName");
+    this.renamer.rename(account, PREMIUM_UUID, "CurrentName", false);
 
-    assertThrows(IllegalStateException.class, () -> this.renamer.rename(staleAccount, PREMIUM_UUID, "AnotherName"));
+    assertThrows(IllegalStateException.class, () -> this.renamer.rename(staleAccount, PREMIUM_UUID, "AnotherName", false));
     assertNull(this.playerDao.queryForId("anothername"));
     assertEquals("OldName", staleAccount.getNickname());
     assertEquals("CurrentName", this.playerDao.queryForId("currentname").getNickname());
+  }
+
+  @ParameterizedTest
+  @NullAndEmptySource
+  void overwritesOnlyTheMatchingUnlinkedDestination(String premiumUuid) throws Exception {
+    RegisteredPlayer account = this.database.createAccount("OldName", PREMIUM_UUID, BACKEND_UUID);
+    this.playerDao.create(new RegisteredPlayer("CURRENTNAME", "occupied-uuid", "192.0.2.2").setPremiumUuid(premiumUuid));
+    this.playerDao.create(new RegisteredPlayer("Unrelated", "other-uuid", "192.0.2.3").setPremiumUuid(premiumUuid));
+
+    assertTrue(this.renamer.rename(account, PREMIUM_UUID, "CurrentName", true));
+
+    assertEquals(PREMIUM_UUID.toString(), this.playerDao.queryForId("currentname").getPremiumUuid());
+    assertEquals("other-uuid", this.playerDao.queryForId("unrelated").getUuid());
+    assertEquals(2, this.playerDao.countOf());
+  }
+
+  @Test
+  void refusesLinkedDestinationEvenWhenOverwriteIsEnabled() throws Exception {
+    RegisteredPlayer account = this.database.createAccount("OldName", PREMIUM_UUID, BACKEND_UUID);
+    UUID otherPremiumUuid = UUID.randomUUID();
+    this.database.createAccount("CurrentName", otherPremiumUuid, UUID.randomUUID());
+
+    assertThrows(IllegalStateException.class, () -> this.renamer.rename(account, PREMIUM_UUID, "CurrentName", true));
+
+    assertEquals(otherPremiumUuid.toString(), this.playerDao.queryForId("currentname").getPremiumUuid());
+    assertEquals("OldName", this.playerDao.queryForId("oldname").getNickname());
+    assertEquals(2, this.playerDao.countOf());
+  }
+
+  @Test
+  void restoresOfflineDestinationWhenSourceChangedBeforeRename() throws Exception {
+    RegisteredPlayer account = this.database.createAccount("OldName", PREMIUM_UUID, BACKEND_UUID);
+    this.playerDao.create(new RegisteredPlayer("CurrentName", "occupied-uuid", "192.0.2.2").setHash("password"));
+    this.playerDao.update(this.playerDao.queryForId("oldname").setPremiumUuid(UUID.randomUUID()));
+
+    assertThrows(IllegalStateException.class, () -> this.renamer.rename(account, PREMIUM_UUID, "CurrentName", true));
+
+    assertEquals("OldName", account.getNickname());
+    assertEquals("password", this.playerDao.queryForId("currentname").getHash());
+    assertEquals("occupied-uuid", this.playerDao.queryForId("currentname").getUuid());
+    assertEquals(2, this.playerDao.countOf());
   }
 }

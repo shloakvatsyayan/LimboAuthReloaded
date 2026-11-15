@@ -63,12 +63,7 @@ public final class BackendProfileHandler {
     );
     RegisteredPlayer registeredPlayer = this.findRegisteredPlayer(event, requestedIdentity.getUsername());
     if (event.isOnlineMode() && registeredPlayer != null) {
-      String previousUsername = registeredPlayer.getNickname();
-      if (new PremiumAccountRenamer(this.playerDao).rename(
-          registeredPlayer, originalProfile.getId(), requestedIdentity.getUsername())) {
-        this.plugin.removePlayerFromCache(previousUsername);
-        this.plugin.removePlayerFromCache(requestedIdentity.getUsername());
-      }
+      registeredPlayer = this.resolvePremiumAccount(event, requestedIdentity, registeredPlayer);
     }
     String connectionUsername = AccountNamespace.canonicalConnectionUsername(
         event.getUsername(),
@@ -99,10 +94,32 @@ public final class BackendProfileHandler {
         backendUuid = this.resolveSavedUuid(registeredPlayer, backendIdentity, isLinkedPremium);
       }
     } else if (event.isOnlineMode()) {
-      this.clearPasswordHash(event.getUsername());
+      this.clearPasswordHash(backendIdentity.getUsername());
     }
 
     event.setGameProfile(currentProfile.withName(backendIdentity.getUsername()).withId(backendUuid));
+  }
+
+  private RegisteredPlayer resolvePremiumAccount(
+      GameProfileRequestEvent event, BackendAccountIdentity requestedIdentity, RegisteredPlayer registeredPlayer) {
+    String previousUsername = registeredPlayer.getNickname();
+    boolean hasChanged;
+    if (Settings.IMP.MAIN.OVERWRITE_UNLINKED_OFFLINE_ACCOUNTS && registeredPlayer.getPremiumUuid().isEmpty()) {
+      RegisteredPlayer premiumAccount = new RegisteredPlayer(
+          requestedIdentity.getUsername(), requestedIdentity.getUuid(), event.getConnection().getRemoteAddress())
+          .setPremiumUuid(event.getOriginalProfile().getId());
+      registeredPlayer = UnlinkedAccounts.replace(this.playerDao, registeredPlayer, premiumAccount);
+      hasChanged = true;
+    } else {
+      hasChanged = new PremiumAccountRenamer(this.playerDao).rename(
+          registeredPlayer, event.getOriginalProfile().getId(), requestedIdentity.getUsername(),
+          Settings.IMP.MAIN.OVERWRITE_UNLINKED_OFFLINE_ACCOUNTS);
+    }
+    if (hasChanged) {
+      this.plugin.removePlayerFromCache(previousUsername);
+      this.plugin.removePlayerFromCache(requestedIdentity.getUsername());
+    }
+    return registeredPlayer;
   }
 
   private void cachePremiumUuid(String connectionUsername, String backendUsername, UUID premiumUuid) {
