@@ -64,40 +64,48 @@ public class PremiumCommand extends RatelimitedCommand {
 
   @Override
   public void execute(CommandSource source, String[] args) {
-    if (source instanceof Player) {
-      if (args.length == 2) {
-        if (this.confirmKeyword.equalsIgnoreCase(args[1])) {
-          String usernameLowercase = ((Player) source).getUsername().toLowerCase(Locale.ROOT);
-          RegisteredPlayer player = AuthSessionHandler.fetchInfoLowercased(this.playerDao, usernameLowercase);
-          if (player == null) {
-            source.sendMessage(this.notRegistered);
-          } else if (player.getHash().isEmpty()) {
-            source.sendMessage(this.alreadyPremium);
-          } else if (AuthSessionHandler.checkPassword(args[0], player, this.playerDao)) {
-            if (this.plugin.isPremiumExternal(usernameLowercase).getState() == LimboAuth.PremiumState.PREMIUM_USERNAME) {
-              try {
-                player.setHash("");
-                this.playerDao.update(player);
-                this.plugin.removePlayerFromCacheLowercased(usernameLowercase);
-                ((Player) source).disconnect(this.successful);
-              } catch (SQLException e) {
-                source.sendMessage(this.errorOccurred);
-                throw new SQLRuntimeException(e);
-              }
-            } else {
-              source.sendMessage(this.notPremium);
-            }
-          } else {
-            source.sendMessage(this.wrongPassword);
-          }
+    if (!(source instanceof Player player)) {
+      source.sendMessage(this.notPlayer);
+      return;
+    }
+    if (args.length != 2 || !this.confirmKeyword.equalsIgnoreCase(args[1])) {
+      source.sendMessage(this.usage);
+      return;
+    }
 
-          return;
-        }
+    try {
+      RegisteredPlayer account = PremiumAccounts.findPlayer(this.playerDao, player);
+      if (account == null) {
+        source.sendMessage(this.notRegistered);
+        return;
+      }
+      if (account.getHash().isEmpty()) {
+        source.sendMessage(this.alreadyPremium);
+        return;
+      }
+      if (!AuthSessionHandler.checkPassword(args[0], account, this.playerDao)) {
+        source.sendMessage(this.wrongPassword);
+        return;
       }
 
-      source.sendMessage(this.usage);
-    } else {
-      source.sendMessage(this.notPlayer);
+      String username = PremiumAccounts.connectionUsername(player);
+      LimboAuth.PremiumResponse premium = this.plugin.isPremiumExternal(username.toLowerCase(Locale.ROOT));
+      if (premium.getState() != LimboAuth.PremiumState.PREMIUM_USERNAME || premium.getUuid() == null) {
+        source.sendMessage(this.notPremium);
+        return;
+      }
+
+      final String premiumUsername = PremiumAccounts.upgrade(this.playerDao, account, player, premium.getUuid());
+      this.plugin.removePlayerFromCacheLowercased(account.getLowercaseNickname());
+      this.plugin.removePlayerFromCache(player.getUsername());
+      this.plugin.removePlayerFromCache(username);
+      if (!premiumUsername.equals(username)) {
+        this.plugin.removePlayerFromCache(premiumUsername);
+      }
+      player.disconnect(this.successful);
+    } catch (SQLException exception) {
+      source.sendMessage(this.errorOccurred);
+      throw new SQLRuntimeException(exception);
     }
   }
 

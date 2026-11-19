@@ -44,6 +44,12 @@ Replacement happens only after successful online-mode authentication. A returnin
 
 For an eligible username collision, the option checks the premium profile service even if the database or cache previously classified the name as offline. A confirmed premium name is sent through online-mode verification even when `online-mode-need-auth` is enabled. Failed verification never replaces an account. If the profile lookup fails or finds no premium owner, the existing offline account remains available. `force-offline-mode` still takes precedence.
 
+## Upgrading a cracked account to premium
+
+With `save-uuid: true`, `/premium <password> confirm` verifies the existing password, looks up the Minecraft name without the offline prefix, and links the registration to that premium UUID. The account moves into the configured premium namespace while keeping the current gameplay UUID, so UUID-based inventory, balances, and permissions remain attached. The old cracked login is reserved with an unretained random password so it cannot be re-registered to access the preserved UUID. The upgrade and reservation are transactional. The player is disconnected and must reconnect with a valid premium session.
+
+Legacy unprefixed registrations are accepted only when both their stored offline UUID and the connected player's prefixed UUID match the registered name. An occupied destination or an existing premium binding is rejected instead of merging accounts. Changes made to the password or identity during the upgrade also cause it to fail without replacing the record.
+
 ## Commands and permissions
 
 ### Player
